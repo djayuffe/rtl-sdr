@@ -207,16 +207,23 @@ void rtlsdr_callback(unsigned char *buf, uint32_t len, void *ctx)
 				num_queued++;
 			}
 
-			if(llbuf_num && llbuf_num == num_queued-2){
-				struct llist *curelem;
+			/* keep at most llbuf_num buffers (it kept llbuf_num + 2, and
+			 * with llbuf_num <= -2 freed the tail it then appended to) */
+			if (llbuf_num > 0 && num_queued + 1 >= llbuf_num) {
+				struct llist *oldest = ll_buffers;
 
-				free(ll_buffers->data);
-				curelem = ll_buffers->next;
-				free(ll_buffers);
-				ll_buffers = curelem;
+				ll_buffers = oldest->next;
+				free(oldest->data);
+				free(oldest);
+				if (ll_buffers == NULL) {
+					/* the oldest was also the tail */
+					cur = NULL;
+					ll_buffers = rpt;
+				}
 			}
 
-			cur->next = rpt;
+			if (cur != NULL)
+				cur->next = rpt;
 
 			if (num_queued > global_numq)
 				printf("ll+, now %d\n", num_queued);

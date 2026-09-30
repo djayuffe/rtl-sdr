@@ -92,6 +92,13 @@ GCC `-fanalyzer` and cppcheck report nothing actionable in the final tree.
 * Direct sampling on/off does not reset an active offset-tuning offset.
 * The FC2580/FC0012/FC0013 calibration loops have no delays (USB latency is assumed to be enough).
 
+## Fourth pass: static analysis sweep
+clang `--analyze` and GCC `-fanalyzer` over every source file. Only one real finding:
+* `rtl_tcp` send queue (`rtlsdr_callback`): with `-n <= -2` the drop-oldest branch freed the *tail* and then appended to it (use-after-free, clang `unix.Malloc`); and the limit was off by two (kept `n+2` buffers). Rewritten: at most `n` buffers, `n <= 0` is unlimited, negative values rejected (`tests/test_tcp_queue.c`, fails on the old code).
+* Everything else was dead stores (`custom_ppm`, `smoothing`, `fft_threads`: options that are parsed but unused) and a one-time leak of the `-f` string in `rtl_power`.
+
+`src/getopt/` is the unmodified GNU getopt from glibc 2001 (LGPL), used on Windows only; it was skimmed, not audited or changed.
+
 ## Evidence
 `tests/` (`-DBUILD_TESTS=ON`) - 4 suites, all pass under ASan+UBSan. The same tests run against the untouched 2.0.3 sources fail
 (division by zero in `r82xx_set_pll`, 32-bit overflow in `fast_atan2`, half DC removal, `rtl_power` SIGFPE, wrong device

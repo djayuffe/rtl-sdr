@@ -23,7 +23,7 @@ target_include_directories(rtlsdr_under_test PUBLIC
   ${THREADS_PTHREADS_INCLUDE_DIR}
 )
 
-foreach(t test_librtlsdr test_dsp_fm test_dsp_power test_adsb)
+foreach(t test_librtlsdr test_dsp_fm test_dsp_power test_adsb test_tcp_queue)
   add_executable(${t} ${t}.c)
   target_link_libraries(${t} rtlsdr_under_test ${CMAKE_THREAD_LIBS_INIT} m)
   add_test(NAME ${t} COMMAND ${t})
