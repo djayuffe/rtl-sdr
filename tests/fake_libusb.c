@@ -35,6 +35,7 @@ static int cancel_req[MAX_PENDING];
 static uint8_t ee_ptr;
 static uint8_t tuner_ptr;
 static uint8_t tuner_regs[256];
+static int claimed;
 static int testmode;		/* demod reg 0x19 == 0x03: device streams a byte counter */
 static uint8_t counter;
 
@@ -105,15 +106,19 @@ static void fill_stream(unsigned char *buf, int len)
 	} else if (sig_kind) {
 		fill_signal(buf, len);
 	} else {
-		/* ~N(127.5, 1.5) noise from a small LCG + CLT */
+		/* ~N(127.5, sigma) noise, sigma grows with the R82xx LNA+mixer index
+		 * (reg 5[3:0], reg 7[3:0]) like a real front end: 1.4 .. 4 counts */
 		static uint32_t lcg = 1;
+		double sigma = 1.4 + 0.09 * ((tuner_regs[5] & 15) + (tuner_regs[7] & 15));
 		for (i = 0; i < len; i++) {
-			int s = 0, k;
-			for (k = 0; k < 4; k++) {
+			double s = 0;
+			int k;
+			for (k = 0; k < 12; k++) {
 				lcg = lcg * 1664525u + 1013904223u;
-				s += (int)((lcg >> 24) & 3) - 1;	/* -1..2, mean 0.5 */
+				s += ((lcg >> 8) & 0xffff) / 65536.0;
 			}
-			buf[i] = (uint8_t)(126 + s);
+			s = (s - 6.0) * sigma + 127.5;	/* Irwin-Hall(12) ~ N(6,1) */
+			buf[i] = (uint8_t)(s < 0 ? 0 : s > 255 ? 255 : (int)(s + 0.5));
 		}
 	}
 }
@@ -135,6 +140,8 @@ void fake_reset(void)
 	submit_base = event_base = -1;
 	testmode = 0;
 	counter = 0;
+	claimed = 0;
+	memset(tuner_regs, 0, sizeof(tuner_regs));
 	sample_rate = 2048000.0;
 	ratio_hi = ratio_lo = 0;
 	sig_kind = 0;
@@ -221,8 +228,15 @@ int libusb_open(libusb_device *dev, libusb_device_handle **h)
 void libusb_close(libusb_device_handle *h) { open_handles--; free(h); }
 libusb_device *libusb_get_device(libusb_device_handle *h) { return h->dev; }
 int libusb_kernel_driver_active(libusb_device_handle *h, int i) { return 0; }
-int libusb_claim_interface(libusb_device_handle *h, int i) { return 0; }
-int libusb_release_interface(libusb_device_handle *h, int i) { return 0; }
+/* real devices can be claimed by one process / handle only */
+int libusb_claim_interface(libusb_device_handle *h, int i)
+{
+	if (claimed)
+		return LIBUSB_ERROR_BUSY;
+	claimed = 1;
+	return 0;
+}
+int libusb_release_interface(libusb_device_handle *h, int i) { claimed = 0; return 0; }
 int libusb_reset_device(libusb_device_handle *h) { return 0; }
 int libusb_dev_mem_free(libusb_device_handle *h, unsigned char *b, size_t l) { return 0; }
 

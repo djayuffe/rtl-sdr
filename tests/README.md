@@ -17,7 +17,7 @@ AddressSanitizer / UBSan) without a dongle.
 The fake bus only proves logic and memory safety; it says nothing about RF behaviour or timing on real hardware.
 
 | `bench_fm`, `bench_power`, `bench_adsb` | offline benchmarks with accuracy gates (`-c`), see ../BENCHMARK.md |
-| `rtl_validate_fake` | the on-device validation tool run against the emulated dongle |
+| `rtl_validate_fake` | the on-device validation tool (about 40 checks, see BENCHMARK.md) run against the emulated dongle |
 | `test_rtl_power_e2e` | tone -> rtl_power scanner/FFT/CSV: peak frequency vs the tone, cropped and decimated scans |
 | `e2e_rtl_fm.py` | the real rtl_fm binary demodulating FM/AM/wbfm from the emulated dongle (python3), incl. a wrong-side negative control |
 

@@ -125,6 +125,8 @@ static void test_tuning(void)
 	/* argument ranges */
 	CHECK(rtlsdr_set_direct_sampling(dev, 3) == -EINVAL);
 	CHECK(rtlsdr_set_direct_sampling(dev, -1) == -EINVAL);
+	CHECK(rtlsdr_set_direct_sampling(dev, 1) == 0);
+	CHECK(rtlsdr_set_direct_sampling(dev, 0) == 0);
 	CHECK(rtlsdr_set_tuner_bandwidth(dev, 0x80000000u) == -EINVAL);
 
 	CHECK(rtlsdr_close(dev) == 0);

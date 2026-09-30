@@ -50,7 +50,7 @@ original code. The small settling delays added to the tuner drivers and all RF b
 - **rtl_biast:** unchecked open, unchecked GPIO range.
 
 ### New
-- `rtl_validate`: on-device validation and benchmark tool (`-DBUILD_VALIDATE=ON`).
+- `rtl_validate`: on-device validation and benchmark tool with about 40 checks (`-DBUILD_VALIDATE=ON`; `-l` lists them, `-r <Hz>` adds reference-carrier checks).
 - `tests/`: fake libusb (RTL2832U + R820T/E4000/FC0012 + EEPROM, can emit tone/FM/AM signals), 11 ctest suites incl. end-to-end `rtl_power` and `rtl_fm` signal tests, 3 offline benchmarks with quality gates.
 - `AUDIT-REPORT.md` (findings, numerical verification), `BENCHMARK.md` (numbers and how to run).
 

@@ -36,27 +36,30 @@ rtl_adsb (DF17, 2 MS/s, Gaussian noise): 12 dB 95 %, 16 dB 99.8 %, 20 dB and abo
     ./src/rtl_validate -q         # quick sweep
     ./src/rtl_validate -c out.csv # also write results as CSV
     -d index|serial  -t seconds per stream test  -T skip host-clock timing  -v verbose
+    -l list checks   -k groups|checks to run (groups: self api rf stream ref opt)
+    -r <Hz>  reference carrier: frequency error, spectrum sign, ppm correction checks
+    -B  also toggle the bias-tee GPIO (antenna supply!)   -E  also write/restore 16 unused EEPROM bytes
 
-Connect a 50 ohm terminator or no antenna for the ADC checks. The bias tee is never switched on.
+Connect a 50 ohm terminator or no antenna for the ADC checks. The bias tee is never switched on without `-B`,
+EEPROM is never written without `-E`.
 Every check prints PASS / WARN / FAIL / SKIP; exit status 0 = no failure, 1 = failure, 2 = usage/device error.
+`rtl_validate -l` prints the full list; groups:
 
-| check | what it verifies |
-|-------|------------------|
-| identity, eeprom | USB strings, tuner detected, EEPROM readable with a valid header |
-| api-contract | invalid rates / ppm / direct-sampling mode / GPIO pin / EEPROM range are rejected |
-| sample-rate | 12 rates from 250 kS/s to 3.2 MS/s program and read back within 5 ppm |
-| gain-table | gain list monotonic and every entry accepted and read back |
-| tuning-range | sweep 20 MHz..2.3 GHz: the tuner's nominal range must tune and read back, gaps are listed |
-| retune-latency | median / p95 / max time of `rtlsdr_set_center_freq()` |
-| pll-stress | 500 random retunes inside the nominal range, none may fail |
-| adc-noise / dc-offset / iq-balance / clipping | 8-bit ADC sanity: sigma, DC (ideal 127.5), I/Q balance, clipping |
-| stream-1024k .. 3200k | async stream with the RTL2832 test-mode byte counter: lost bytes and sample-clock error vs the host clock (3.2 MS/s is only a warning: USB2 hubs) |
-| async-cancel | cancel latency |
+| group | checks |
+|-------|--------|
+| self | self-fft (the validator's own FFT/peak finder against a synthetic tone) |
+| api | identity, api-enumeration (name/strings/serial lookups agree), api-contract (invalid rate / ppm / mode / GPIO / EEPROM range / NULL handles rejected), eeprom (valid header, stable re-read, offset read), api-xtal, api-freq-correction, api-bandwidth, api-gain-modes (manual/AGC, E4000 IF stages), api-testmode-agc, api-direct-sampling (modes 0/1/2, tuner restored), api-offset-tuning, api-read-sync, api-async-params (bad buffer count/length), api-async-reentrancy (cancel when idle, nested start refused, restarts), api-open-close (double open refused, 10 close/open cycles) |
+| rf | sample-rate (12 rates within 5 ppm), gain-table (monotonic, all accepted), gain-noise (noise rises with gain), tuning-range (sweep, gaps listed), retune-latency (median/p95/max), pll-stress (random retunes), adc-noise / adc-dc-offset / adc-iq-balance / adc-clipping, spur-scan (FFT of the terminated input: strongest line and DC spike vs median) |
+| stream | stream-1024k .. 3200k with the RTL2832 test-mode counter (lost bytes, sample-clock error vs host clock), async-cancel latency |
+| ref | ref-frequency (error in ppm and a suggested `-p`), ref-sign (spectrum not mirrored), ref-ppm-effect, ref-ppm-applied (needs `-r`) |
+| opt | biast-toggle (`-B`), eeprom-write (`-E`) |
 
 The same tool runs in CI against the emulated dongle (`ctest`, test `rtl_validate_fake`), and it
-fails (or crashes) against the unpatched 2.0.3 library: it reports the wrong `rtlsdr_read_eeprom()`
-return value and the missing argument checks.
+fails (or crashes) against the unpatched 2.0.3 library: wrong `rtlsdr_read_eeprom()` return value, missing
+argument checks (segfault on direct-sampling mode 3), enumeration, xtal and bandwidth handling. While being
+written it also found a real bug: `rtlsdr_set_direct_sampling(dev, 0)` failed before any frequency was set or
+after a direct-sampling frequency the R820T cannot reach.
 
 ## 3. Manual RF checks (not automated)
-Frequency accuracy needs a reference: tune a known carrier (GSM/LTE/NOAA) and compare with `-p`. `rtl_test -p` and
+Frequency accuracy needs a reference (`rtl_validate -r <Hz>` automates it): tune a known carrier (GSM/LTE/NOAA) and compare with `-p`. `rtl_test -p` and
 `rtl_validate`'s stream clock measure the sample clock against the host clock only.

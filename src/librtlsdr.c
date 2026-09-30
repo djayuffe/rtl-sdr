@@ -1271,7 +1271,11 @@ int rtlsdr_set_direct_sampling(rtlsdr_dev_t *dev, int on)
 		dev->direct_sampling = 0;
 	}
 
-	r |= rtlsdr_set_center_freq(dev, dev->freq);
+	/* re-apply the last frequency. None set yet (0), or a direct-sampling
+	 * frequency the tuner cannot reach (e.g. 7 MHz on an R820T), is not a
+	 * failure of the mode switch: the caller sets a new frequency anyway. */
+	if (dev->freq && rtlsdr_set_center_freq(dev, dev->freq) && on)
+		r = -1;
 
 	return r;
 }
