@@ -68,6 +68,7 @@ Each claim was checked with a script or a test, not just read.
 | **rtl_power windows** | Hann-Poisson and Youssef were shifted half a sample (`|N-1-2i|` instead of `|N-1-2i+1|`) and Bartlett divided by L/2 instead of (L-1)/2, so they were not symmetric (measured); `-w kaiser` is a rectangle, now says so |
 | **CIC droop tables** | DC gain 1.072..1.098 (+0.6..0.8 dB), i.e. `-F 9` changes the level slightly (not changed, empirical tables) |
 | **E4000 PLL** | VCO = flo*R checked against 2.6..3.9 GHz for 50 MHz..2.2 GHz: outside at 50-54 MHz, 432-433, 650.5-666.5, 975-1300 (documented L-band gap) and everything above 1950 MHz, so the advertised 2.2 GHz limit is not reachable; the tuner's lock detector already reports failures |
+| **rtl_test -p (Windows)** | `ppm_gettime()` read `init`/`frequency` from an uninitialised stack struct (cppcheck): timing divided by garbage. Made static (found by cppcheck, not testable here) |
 | **rtl_power level scale** | dB values are relative: FFT modes and the `-f a:b:>=1M` "rms" mode differ by a constant (sum vs mean of squares), window gain is not normalised. Not changed (would change stored data) |
 
 ## Verification summary
