@@ -15,3 +15,6 @@ AddressSanitizer / UBSan) without a dongle.
 | `test_adsb` | end-to-end decode of a synthesised DF17 frame, truncated frame rejection |
 
 The fake bus only proves logic and memory safety; it says nothing about RF behaviour or timing on real hardware.
+
+| `bench_fm`, `bench_power`, `bench_adsb` | offline benchmarks with accuracy gates (`-c`), see ../BENCHMARK.md |
+| `rtl_validate_fake` | the on-device validation tool run against the emulated dongle |

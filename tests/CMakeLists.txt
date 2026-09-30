@@ -23,6 +23,20 @@ target_include_directories(rtlsdr_under_test PUBLIC
   ${THREADS_PTHREADS_INCLUDE_DIR}
 )
 
+# rtl_validate against the emulated dongle (no timing, short streams)
+add_executable(rtl_validate_fake ${PROJECT_SOURCE_DIR}/src/rtl_validate.c validate_main.c)
+target_link_libraries(rtl_validate_fake rtlsdr_under_test ${CMAKE_THREAD_LIBS_INIT} m)
+add_test(NAME rtl_validate_fake COMMAND rtl_validate_fake -q -T -t 0.2)
+set_tests_properties(rtl_validate_fake PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0")
+
+# offline DSP benchmarks / accuracy reports (run manually: ./bench_fm, ./bench_power, ./bench_adsb; -q = quick)
+foreach(b bench_fm bench_power bench_adsb)
+  add_executable(${b} ${b}.c)
+  target_link_libraries(${b} rtlsdr_under_test ${CMAKE_THREAD_LIBS_INIT} m)
+  add_test(NAME ${b}_check COMMAND ${b} -q -c)
+  set_tests_properties(${b}_check PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0")
+endforeach()
+
 foreach(t test_librtlsdr test_dsp_fm test_dsp_power test_adsb test_tcp_queue)
   add_executable(${t} ${t}.c)
   target_link_libraries(${t} rtlsdr_under_test ${CMAKE_THREAD_LIBS_INIT} m)

@@ -42,6 +42,33 @@ static void test_atan(void)
 		}
 	}
 	CHECK(fast_atan2(0, 0) == 0);
+
+	/* dense sweep of the whole circle for several magnitudes, incl. the tiny
+	 * angles (|cj/cr| < 1/256) that used to return +pi from the table */
+	{
+		double mag, a;
+		int worst = 0, n = 0;
+		for (mag = 200; mag <= 30000; mag *= 3) {
+			for (a = -M_PI + 0.001; a < M_PI; a += 0.0173) {
+				int yi = (int)lrint(mag * sin(a)), xi = (int)lrint(mag * cos(a));
+				int want, got;
+				if (!xi && !yi)
+					continue;
+				want = ref_angle(yi, xi);
+				/* discriminator of (x + jy) and 1 + 0j */
+				got = polar_disc_lut(xi, yi, 32000, 0);
+				if (abs(got - want) > worst && abs(abs(got - want) - 32768) > 100)
+					worst = abs(got - want);	/* +-pi wrap is the same angle */
+				n++;
+			}
+		}
+		CHECK(n > 1000);
+		CHECK(worst < 64);
+	}
+	/* explicit tiny positive / negative steps */
+	CHECK(abs(polar_disc_lut(3000, 8, 3000, 0)) < 20);
+	CHECK(abs(polar_disc_lut(3000, -8, 3000, 0)) < 20);
+	CHECK(abs(polar_disc_lut(-3000, 8, 3000, 0)) > 16000);	/* near +-pi */
 }
 
 static void test_stats(void)

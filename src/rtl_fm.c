@@ -549,14 +549,16 @@ int polar_disc_lut(int ar, int aj, int br, int bj)
 		return (cj > 0) ? 1<<13 : -(1<<13);
 	}
 
-	x = (int)xl;
-	if (x > 0) {
-		return (cj > 0) ? atan_lut[x] : atan_lut[x] - (1<<14);
+	/* Decide the quadrant from the sign of cr and cj, never from the sign of
+	 * x: x is 0 for every |cj/cr| < 1/256 (angle < 0.22 degrees) and that
+	 * used to be treated as "negative", so a small positive phase step came
+	 * out as +pi (a full scale spike on quiet/narrow signals). */
+	x = (int)(xl < 0 ? -xl : xl);
+	if (cr > 0) {
+		return (cj > 0) ? atan_lut[x] : -atan_lut[x];
 	} else {
-		return (cj > 0) ? (1<<14) - atan_lut[-x] : -atan_lut[-x];
+		return (cj > 0) ? (1<<14) - atan_lut[x] : atan_lut[x] - (1<<14);
 	}
-
-	return 0;
 }
 
 void fm_demod(struct demod_state *fm)

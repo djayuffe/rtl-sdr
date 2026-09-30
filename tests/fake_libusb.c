@@ -34,6 +34,28 @@ static int cancel_req[MAX_PENDING];
 static uint8_t ee_ptr;
 static uint8_t tuner_ptr;
 static uint8_t tuner_regs[256];
+static int testmode;		/* demod reg 0x19 == 0x03: device streams a byte counter */
+static uint8_t counter;
+
+static void fill_stream(unsigned char *buf, int len)
+{
+	int i;
+	if (testmode) {
+		for (i = 0; i < len; i++)
+			buf[i] = counter++;
+	} else {
+		/* ~N(127.5, 1.5) noise from a small LCG + CLT */
+		static uint32_t lcg = 1;
+		for (i = 0; i < len; i++) {
+			int s = 0, k;
+			for (k = 0; k < 4; k++) {
+				lcg = lcg * 1664525u + 1013904223u;
+				s += (int)((lcg >> 24) & 3) - 1;	/* -1..2, mean 0.5 */
+			}
+			buf[i] = (uint8_t)(126 + s);
+		}
+	}
+}
 
 uint8_t fake_tuner_reg(int reg) { return tuner_regs[reg & 0xff]; }
 
@@ -50,6 +72,8 @@ void fake_reset(void)
 	submit_calls = 0;
 	event_calls = 0;
 	submit_base = event_base = -1;
+	testmode = 0;
+	counter = 0;
 	gpo_writes = 0;
 	last_gpo = 0;
 	for (i = 0; i < MAX_PENDING; i++) {
@@ -176,6 +200,8 @@ int libusb_control_transfer(libusb_device_handle *h, uint8_t bmRequestType,
 
 	if ((wValue & 0xff) == 0x20 && block == 0) {
 		/* demod register access */
+		if (!in && (wValue >> 8) == 0x19 && (wIndex & 0x0f) == 0 && wLength >= 1)
+			testmode = (data[0] == 0x03);
 		if (in)
 			memset(data, 0, wLength);
 		return wLength;
@@ -228,7 +254,7 @@ int libusb_bulk_transfer(libusb_device_handle *h, unsigned char ep,
 			 unsigned char *data, int length, int *transferred,
 			 unsigned int timeout)
 {
-	memset(data, 0x7f, length);
+	fill_stream(data, length);
 	if (transferred)
 		*transferred = length;
 	return 0;
@@ -307,7 +333,7 @@ int libusb_handle_events_timeout_completed(libusb_context *ctx, struct timeval *
 			t->status = LIBUSB_TRANSFER_CANCELLED;
 			t->actual_length = 0;
 		} else {
-			memset(t->buffer, 0x7f, t->length);
+			fill_stream(t->buffer, t->length);
 			t->status = LIBUSB_TRANSFER_COMPLETED;
 			t->actual_length = t->length;
 		}

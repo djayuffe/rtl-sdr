@@ -139,6 +139,26 @@ else()
 endif()
 endif()
 
+# On-device validation / benchmark tool (not installed): -DBUILD_VALIDATE=ON
+option(BUILD_VALIDATE "Build rtl_validate, the on-device validation and benchmark tool" OFF)
+if(BUILD_VALIDATE)
+add_executable(rtl_validate rtl_validate.c)
+target_link_libraries(rtl_validate rtlsdr convenience_static
+    ${LIBUSB_LIBRARIES}
+    ${CMAKE_THREAD_LIBS_INIT}
+)
+if(UNIX)
+target_link_libraries(rtl_validate m)
+if(NOT APPLE AND NOT CMAKE_SYSTEM MATCHES "OpenBSD")
+    target_link_libraries(rtl_validate rt)
+endif()
+endif()
+if(WIN32)
+target_link_libraries(rtl_validate libgetopt_static)
+set_property(TARGET rtl_validate APPEND PROPERTY COMPILE_DEFINITIONS "rtlsdr_STATIC" )
+endif()
+endif()
+
 if(WIN32)
 target_link_libraries(rtl_sdr libgetopt_static)
 target_link_libraries(rtl_tcp ws2_32 libgetopt_static)
