@@ -782,10 +782,10 @@ int rtlsdr_get_xtal_freq(rtlsdr_dev_t *dev, uint32_t *rtl_freq, uint32_t *tuner_
 	#define APPLY_PPM_CORR(val,ppm) (((val) * (1.0 + (ppm) / 1e6)))
 
 	if (rtl_freq)
-		*rtl_freq = (uint32_t) APPLY_PPM_CORR(dev->rtl_xtal, dev->corr);
+		*rtl_freq = (uint32_t) (APPLY_PPM_CORR(dev->rtl_xtal, dev->corr) + 0.5);
 
 	if (tuner_freq)
-		*tuner_freq = (uint32_t) APPLY_PPM_CORR(dev->tun_xtal, dev->corr);
+		*tuner_freq = (uint32_t) (APPLY_PPM_CORR(dev->tun_xtal, dev->corr) + 0.5);
 
 	return 0;
 }
@@ -909,6 +909,8 @@ int rtlsdr_set_center_freq(rtlsdr_dev_t *dev, uint32_t freq)
 	if (dev->direct_sampling) {
 		r = rtlsdr_set_if_freq(dev, freq);
 	} else if (dev->tuner && dev->tuner->set_freq) {
+		if (freq < dev->offs_freq)	/* would wrap to ~4 GHz */
+			return -EINVAL;
 		rtlsdr_set_i2c_repeater(dev, 1);
 		r = dev->tuner->set_freq(dev, freq - dev->offs_freq);
 		rtlsdr_set_i2c_repeater(dev, 0);
@@ -1116,6 +1118,7 @@ int rtlsdr_set_sample_rate(rtlsdr_dev_t *dev, uint32_t samp_rate)
 	uint16_t tmp;
 	uint32_t rsamp_ratio, real_rsamp_ratio;
 	double real_rate;
+	uint64_t ratio64;
 
 	if (!dev)
 		return -1;
@@ -1127,7 +1130,19 @@ int rtlsdr_set_sample_rate(rtlsdr_dev_t *dev, uint32_t samp_rate)
 		return -EINVAL;
 	}
 
-	rsamp_ratio = (dev->rtl_xtal * TWO_POW(22)) / samp_rate;
+	/* The hardware ratio field has 28 bits and bit 28 is a copy of bit 27.
+	 * The fixed limits above only match a 28.8 MHz crystal exactly: with the
+	 * +-1 kHz allowed by rtlsdr_set_xtal_freq() the rates at the edge of the
+	 * 225..300 kS/s window (e.g. 300000 with a 28.799 MHz crystal) fall
+	 * outside what can be represented and used to be programmed wrongly. */
+	ratio64 = (uint64_t)((dev->rtl_xtal * TWO_POW(22)) / samp_rate);
+	if (ratio64 >= (1ULL << 29) ||
+	    ((ratio64 >> 28) & 1) != ((ratio64 >> 27) & 1)) {
+		fprintf(stderr, "Invalid sample rate: %u Hz\n", samp_rate);
+		return -EINVAL;
+	}
+
+	rsamp_ratio = (uint32_t)ratio64;
 	rsamp_ratio &= 0x0ffffffc;
 
 	real_rsamp_ratio = rsamp_ratio | ((rsamp_ratio & 0x08000000) << 1);
@@ -1136,7 +1151,7 @@ int rtlsdr_set_sample_rate(rtlsdr_dev_t *dev, uint32_t samp_rate)
 	if ( ((double)samp_rate) != real_rate )
 		fprintf(stderr, "Exact sample rate is: %f Hz\n", real_rate);
 
-	dev->rate = (uint32_t)real_rate;
+	dev->rate = (uint32_t)(real_rate + 0.5);	/* round, 249999.9999 must not become 249999 */
 
 	if (dev->tuner && dev->tuner->set_bw) {
 		rtlsdr_set_i2c_repeater(dev, 1);

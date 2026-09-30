@@ -50,6 +50,31 @@ or a reproducible run that fails on the original code and passes now (see "Evide
 * `fc0013` gain table has an unreachable duplicate `-63` entry; `fc2580` has no frequency range checks; E4000 VCO range is left to the lock detector.
 * `rtlsdr_close()` busy-waits for the async loop; the library prints diagnostics to stderr.
 
+## Second pass: numerical / DSP verification
+Each claim was checked with a script or a test, not just read.
+
+| topic | result |
+|-------|--------|
+| **Sample-rate ratio** (`rtlsdr_set_sample_rate`) | The 28-bit ratio field mirrors bit 27 into bit 28, so only ratios with bit28==bit27 are representable. The fixed 225..300 kS/s / 900 kS/s limits are exact for a 28.8 MHz crystal, but `rtlsdr_set_xtal_freq()` allows +-1 kHz: with 28.799 MHz, 300000 S/s and with 28.801 MHz, 225001 S/s were programmed with a ratio the hardware cannot hold (wrong rate, silently). Now validated from the real ratio. `dev->rate` is rounded (249999.9999 no longer reads back as 249999) |
+| **R82xx manual gain** | The 29 published gains equal the cumulative LNA+mixer sums exactly (verified). But any request above 496 selected mixer step 15 (-8 dB): 500 or 1000 ended at 488, *lower* than the maximum. Saturates at 496 now |
+| **R82xx PLL** | Simulated over 30 MHz..1.766 GHz: LO quantisation error <= 220 Hz (16-bit SDM, theory 2*xtal/65536/2), nint always 30..61, lowest LO with a valid divider 27.66 MHz (so tuning below ~24.1 MHz has no divider; it now reports an error instead of programming a wrong one) |
+| **IF frequency register** | 22-bit two's complement; above +-14.4 MHz it wraps, i.e. direct sampling above fs/2 shows a *mirrored* spectrum (aliasing, documented not fixed). Rounded instead of truncated (up to 6.9 Hz) |
+| **Corrected crystal** | `xtal*(1+ppm/1e6)` was truncated, now rounded |
+| **Offset tuning** | `freq - offs_freq` wrapped to ~4 GHz below ~1.7 MHz at 2.048 MS/s: now rejected |
+| **rtl_fm 170k->32k resampler** | Divided every window by the constant 5 although windows hold 5 or 6 samples: gain 1.0..1.2 that changed from output to output (AM ripple on the audio). Now a true average |
+| **rtl_fm `-F` decimator** | State handling dropped the last sample of every block (phase glitch once per buffer) and truncated instead of rounding. Rewritten with a 4-sample history; continuity across blocks is tested |
+| **rtl_fm/rtl_power droop FIR** | `int16 * 77818` overflowed 32 bit for large samples (UBSan reproduced) -> 64-bit accumulate + saturate |
+| **rtl_fm `-o`** | `low_pass_simple` summed without saturation and read a partial last group: fixed |
+| **rtl_power windows** | Hann-Poisson and Youssef were shifted half a sample (`|N-1-2i|` instead of `|N-1-2i+1|`) and Bartlett divided by L/2 instead of (L-1)/2, so they were not symmetric (measured); `-w kaiser` is a rectangle, now says so |
+| **CIC droop tables** | DC gain 1.072..1.098 (+0.6..0.8 dB), i.e. `-F 9` changes the level slightly (not changed, empirical tables) |
+| **E4000 PLL** | VCO = flo*R checked against 2.6..3.9 GHz for 50 MHz..2.2 GHz: outside at 50-54 MHz, 432-433, 650.5-666.5, 975-1300 (documented L-band gap) and everything above 1950 MHz, so the advertised 2.2 GHz limit is not reachable; the tuner's lock detector already reports failures |
+| **rtl_power level scale** | dB values are relative: FFT modes and the `-f a:b:>=1M` "rms" mode differ by a constant (sum vs mean of squares), window gain is not normalised. Not changed (would change stored data) |
+
+## Verification summary
+`ctest` (4 suites) passes under ASan+UBSan. The second-pass tests fail on the first-pass code:
+sample-rate edges (2), gain saturation (1), resampler gain, decimator continuity, window symmetry (2).
+GCC `-fanalyzer` and cppcheck report nothing actionable in the final tree.
+
 ## Evidence
 `tests/` (`-DBUILD_TESTS=ON`) - 4 suites, all pass under ASan+UBSan. The same tests run against the untouched 2.0.3 sources fail
 (division by zero in `r82xx_set_pll`, 32-bit overflow in `fast_atan2`, half DC removal, `rtl_power` SIGFPE, wrong device

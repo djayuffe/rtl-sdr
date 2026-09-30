@@ -24,5 +24,6 @@ int fake_open_handles(void);
 unsigned fake_gpo_writes(void);		/* number of writes to the GPO register */
 uint8_t fake_last_gpo(void);
 void fake_reset(void);
+uint8_t fake_tuner_reg(int reg);	/* last value written to a tuner register */
 
 #endif

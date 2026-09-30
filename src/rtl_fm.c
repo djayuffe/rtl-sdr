@@ -142,6 +142,7 @@ struct demod_state
 	int      custom_atan;
 	int      deemph, deemph_a;
 	int      now_lpr;
+	int      now_lpr_n;
 	int      prev_lpr_index;
 	int      dc_block, dc_avg;
 	void     (*mode_demod)(struct demod_state*);
@@ -357,20 +358,21 @@ void low_pass(struct demod_state *d)
 }
 
 int low_pass_simple(int16_t *signal2, int len, int step)
-// no wrap around, length must be multiple of step
+// no wrap around, only whole groups of step samples are used
 {
 	int i, i2, sum;
 	if (step < 1 || len < step)
 		{return 0;}
+	len -= len % step;  /* a partial last group used to read stale samples */
 	for(i=0; i < len; i+=step) {
 		sum = 0;
 		for(i2=0; i2<step; i2++) {
 			sum += (int)signal2[i + i2];
 		}
 		//signal2[i/step] = (int16_t)(sum / step);
-		signal2[i/step] = (int16_t)(sum);
+		signal2[i/step] = clip16(sum);  /* the sum of up to 16 samples wrapped int16 */
 	}
-	signal2[i/step + 1] = signal2[i/step];
+	signal2[len/step] = signal2[len/step - 1];
 	return len / step;
 }
 
@@ -383,63 +385,62 @@ void low_pass_real(struct demod_state *s)
 	int slow = s->rate_out2;
 	while (i < s->result_len) {
 		s->now_lpr += s->result[i];
+		s->now_lpr_n++;
 		i++;
 		s->prev_lpr_index += slow;
 		if (s->prev_lpr_index < fast) {
 			continue;
 		}
-		s->result[i2] = (int16_t)(s->now_lpr / (fast/slow));
+		/* average over the samples really accumulated: the window is 5 or
+		 * 6 samples for 170k -> 32k, dividing by the constant fast/slow
+		 * gave a gain of 1.0 .. 1.2 that changed from output to output */
+		s->result[i2] = (int16_t)(s->now_lpr / s->now_lpr_n);
 		s->prev_lpr_index -= fast;
 		s->now_lpr = 0;
+		s->now_lpr_n = 0;
 		i2 += 1;
 	}
 	s->result_len = i2;
 }
 
 void fifth_order(int16_t *data, int length, int16_t *hist)
-/* for half of interleaved data */
+/* for half of interleaved data: 5th order binomial low-pass, decimate by 2.
+   hist keeps the last four input samples of the previous block so the filter
+   is continuous across blocks (the previous code silently dropped the last
+   sample of every block, a phase glitch every buffer). The passband gain of
+   2 (weights sum to 32, shift by 4) is intentional, see full_demod(). */
 {
-	int i;
-	int16_t a, b, c, d, e, f;
-	a = hist[1];
-	b = hist[2];
-	c = hist[3];
-	d = hist[4];
-	e = hist[5];
-	f = data[0];
-	/* a downsample should improve resolution, so don't fully shift */
-	data[0] = (a + (b+e)*5 + (c+d)*10 + f) >> 4;
-	for (i=4; i<length; i+=4) {
-		a = c;
-		b = d;
-		c = e;
-		d = f;
-		e = data[i-2];
-		f = data[i];
-		data[i/2] = (a + (b+e)*5 + (c+d)*10 + f) >> 4;
+	int i, n = (length + 1) / 2;  /* samples of this channel */
+	int h0 = hist[0], h1 = hist[1], h2 = hist[2], h3 = hist[3];
+	int p, q;
+	for (i = 0; i + 1 < n; i += 2) {
+		p = data[2*i];
+		q = data[2*i + 2];
+		/* window, oldest first: h0 h1 h2 h3 p q with weights 1 5 10 10 5 1 */
+		data[i] = clip16((h0 + (h1 + p)*5 + (h2 + h3)*10 + q + 8) >> 4);
+		h0 = h2; h1 = h3; h2 = p; h3 = q;
 	}
 	/* archive */
-	hist[0] = a;
-	hist[1] = b;
-	hist[2] = c;
-	hist[3] = d;
-	hist[4] = e;
-	hist[5] = f;
+	hist[0] = (int16_t)h0;
+	hist[1] = (int16_t)h1;
+	hist[2] = (int16_t)h2;
+	hist[3] = (int16_t)h3;
 }
 
 void generic_fir(int16_t *data, int length, int *fir, int16_t *hist)
 /* Okay, not at all generic.  Assumes length 9, fix that eventually. */
 {
-	int d, temp, sum;
+	int d, temp;
+	long long sum;  /* hist (int16) * fir (up to 77818) overflowed int */
 	for (d=0; d<length; d+=2) {
 		temp = data[d];
 		sum = 0;
-		sum += (hist[0] + hist[8]) * fir[1];
-		sum += (hist[1] + hist[7]) * fir[2];
-		sum += (hist[2] + hist[6]) * fir[3];
-		sum += (hist[3] + hist[5]) * fir[4];
-		sum +=            hist[4]  * fir[5];
-		data[d] = sum >> 15 ;
+		sum += (long long)(hist[0] + hist[8]) * fir[1];
+		sum += (long long)(hist[1] + hist[7]) * fir[2];
+		sum += (long long)(hist[2] + hist[6]) * fir[3];
+		sum += (long long)(hist[3] + hist[5]) * fir[4];
+		sum += (long long)hist[4] * fir[5];
+		data[d] = clip16(sum >> 15);
 		hist[0] = hist[1];
 		hist[1] = hist[2];
 		hist[2] = hist[3];
@@ -1102,6 +1103,7 @@ void demod_init(struct demod_state *s)
 	s->prev_lpr_index = 0;
 	s->deemph_a = 0;
 	s->now_lpr = 0;
+	s->now_lpr_n = 0;
 	s->dc_block = 0;
 	s->dc_avg = 0;
 	pthread_rwlock_init(&s->rw, NULL);

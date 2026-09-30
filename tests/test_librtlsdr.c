@@ -87,6 +87,33 @@ static void test_tuning(void)
 	CHECK(rtlsdr_set_center_freq(dev, 2500000000u) < 0);
 	CHECK(rtlsdr_set_center_freq(dev, 98000000) == 0);
 
+	/* rates at the edge of the 225..300 kS/s window are only representable
+	 * when the crystal is close to 28.8 MHz */
+	CHECK(rtlsdr_set_sample_rate(dev, 300000) == 0);
+	CHECK(rtlsdr_set_sample_rate(dev, 225001) == 0);
+	CHECK(rtlsdr_set_sample_rate(dev, 250000) == 0);
+	CHECK(rtlsdr_get_sample_rate(dev) == 250000);	/* was 249999 with truncation */
+	CHECK(rtlsdr_set_xtal_freq(dev, 28799000, 0) == 0);
+	CHECK(rtlsdr_set_sample_rate(dev, 300000) == -EINVAL);
+	CHECK(rtlsdr_set_sample_rate(dev, 299000) == 0);
+	CHECK(rtlsdr_set_xtal_freq(dev, 28801000, 0) == 0);
+	CHECK(rtlsdr_set_sample_rate(dev, 225001) == -EINVAL);
+	CHECK(rtlsdr_set_sample_rate(dev, 226000) == 0);
+	CHECK(rtlsdr_set_xtal_freq(dev, 28800000, 0) == 0);
+	CHECK(rtlsdr_set_sample_rate(dev, 2048000) == 0);
+
+	/* R82xx manual gain: lna index in reg 5[3:0], mixer index in reg 7[3:0] */
+	CHECK(rtlsdr_set_tuner_gain_mode(dev, 1) == 0);
+	CHECK(rtlsdr_set_tuner_gain(dev, 496) == 0);
+	CHECK((fake_tuner_reg(0x05) & 0x0f) == 15 && (fake_tuner_reg(0x07) & 0x0f) == 14);
+	/* above the maximum: used to select mixer step 15 (-8 dB) = 488 */
+	CHECK(rtlsdr_set_tuner_gain(dev, 1000) == 0);
+	CHECK((fake_tuner_reg(0x05) & 0x0f) == 15 && (fake_tuner_reg(0x07) & 0x0f) == 14);
+	CHECK(rtlsdr_set_tuner_gain(dev, 14) == 0);
+	CHECK((fake_tuner_reg(0x05) & 0x0f) == 1 && (fake_tuner_reg(0x07) & 0x0f) == 1);
+	CHECK(rtlsdr_set_tuner_gain(dev, 0) == 0);
+	CHECK((fake_tuner_reg(0x05) & 0x0f) == 0 && (fake_tuner_reg(0x07) & 0x0f) == 0);
+
 	/* ppm range */
 	CHECK(rtlsdr_set_freq_correction(dev, -1000000) == -EINVAL);
 	CHECK(rtlsdr_set_freq_correction(dev, 1000000) == -EINVAL);
@@ -240,6 +267,11 @@ static void test_e4k(void)
 	CHECK(rtlsdr_get_tuner_type(dev) == RTLSDR_TUNER_E4000);
 	CHECK(rtlsdr_set_sample_rate(dev, 2048000) == 0);
 	CHECK(rtlsdr_set_center_freq(dev, 100000000) == 0);
+	/* offset tuning shifts the LO by ~1.7 MHz: tuning below that used to wrap to ~4 GHz */
+	CHECK(rtlsdr_set_offset_tuning(dev, 1) == 0);
+	CHECK(rtlsdr_set_center_freq(dev, 1000000) == -EINVAL);
+	CHECK(rtlsdr_set_center_freq(dev, 100000000) == 0);
+	CHECK(rtlsdr_set_offset_tuning(dev, 0) == 0);
 	/* Z would not fit its 8 bit register: used to wrap silently */
 	CHECK(rtlsdr_set_center_freq(dev, 4000000000u) < 0);
 	CHECK(rtlsdr_set_center_freq(dev, 100000000) == 0);

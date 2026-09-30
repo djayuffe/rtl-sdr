@@ -375,7 +375,7 @@ double hann_poisson(int i, int length)
 	a = 2.0;
 	N1 = (double)(length-1);
 	w = 0.5 * (1 - cos(2*M_PI*i/N1)) * \
-	    pow(M_E, (-a*(double)abs((int)(N1-1-2*i)))/N1);
+	    pow(M_E, (-a*fabs(N1-2.0*i))/N1);	/* symmetric: |N1-2i|, not |N1-1-2i| */
 	return w;
 }
 
@@ -390,7 +390,7 @@ double youssef(int i, int length)
 	N1 = (double)(length-1);
 	w = a0 - a1*cos(2*i*M_PI/N1) + a2*cos(4*i*M_PI/N1) - a3*cos(6*i*M_PI/N1);
 	a = 0.0025;
-	w *= pow(M_E, (-a*(double)abs((int)(N1-1-2*i)))/N1);
+	w *= pow(M_E, (-a*fabs(N1-2.0*i))/N1);
 	return w;
 }
 
@@ -405,7 +405,7 @@ double bartlett(int i, int length)
 	double N1, L, w;
 	L = (double)length;
 	N1 = L - 1;
-	w = (i - N1/2) / (L/2);
+	w = (i - N1/2) / (N1/2);
 	if (w < 0) {
 		w = -w;}
 	w = 1 - w;
@@ -645,7 +645,8 @@ void remove_dc(int16_t *data, int length)
 void generic_fir(int16_t *data, int length, int *fir)
 /* Okay, not at all generic.  Assumes length 9, fix that eventually. */
 {
-	int d, temp, sum;
+	int d, temp;
+	long long sum;  /* int16 * fir (up to 77818) overflowed int */
 	int hist[9] = {0,};
 	/* cheat on the beginning, let it go unfiltered */
 	for (d=0; d<18; d+=2) {
@@ -654,12 +655,12 @@ void generic_fir(int16_t *data, int length, int *fir)
 	for (d=18; d<length; d+=2) {
 		temp = data[d];
 		sum = 0;
-		sum += (hist[0] + hist[8]) * fir[1];
-		sum += (hist[1] + hist[7]) * fir[2];
-		sum += (hist[2] + hist[6]) * fir[3];
-		sum += (hist[3] + hist[5]) * fir[4];
-		sum +=            hist[4]  * fir[5];
-		data[d] = (int16_t)(sum >> 15) ;
+		sum += (long long)(hist[0] + hist[8]) * fir[1];
+		sum += (long long)(hist[1] + hist[7]) * fir[2];
+		sum += (long long)(hist[2] + hist[6]) * fir[3];
+		sum += (long long)(hist[3] + hist[5]) * fir[4];
+		sum += (long long)hist[4] * fir[5];
+		data[d] = clip16((int32_t)(sum >> 15));
 		hist[0] = hist[1];
 		hist[1] = hist[2];
 		hist[2] = hist[3];
@@ -890,6 +891,7 @@ int main(int argc, char **argv)
 			if (strcmp("youssef",  optarg) == 0) {
 				window_fn = youssef;}
 			if (strcmp("kaiser",  optarg) == 0) {
+				fprintf(stderr, "Warning: the kaiser window is not implemented, using rectangle.\n");
 				window_fn = kaiser;}
 			if (strcmp("bartlett",  optarg) == 0) {
 				window_fn = bartlett;}

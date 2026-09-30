@@ -33,6 +33,9 @@ static int cancel_req[MAX_PENDING];
 
 static uint8_t ee_ptr;
 static uint8_t tuner_ptr;
+static uint8_t tuner_regs[256];
+
+uint8_t fake_tuner_reg(int reg) { return tuner_regs[reg & 0xff]; }
 
 void fake_reset(void)
 {
@@ -185,6 +188,9 @@ int libusb_control_transfer(libusb_device_handle *h, uint8_t bmRequestType,
 				}
 			} else if (wLength >= 1) {
 				tuner_ptr = data[0];
+				if (addr == fake_tuner_addr)
+					for (i = 1; i < wLength; i++)
+						tuner_regs[(uint8_t)(data[0] + i - 1)] = data[i];
 			}
 			return wLength;
 		}

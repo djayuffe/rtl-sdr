@@ -79,6 +79,25 @@ static void test_fft(void)
 	CHECK(best == k);
 }
 
+static void test_windows(void)
+{
+	int i, n = 64;
+	double d = 0;
+	double (*fn[])(int, int) = { hamming, blackman, blackman_harris, hann_poisson,
+				     youssef, bartlett };
+	for (i = 0; i < n; i++) {
+		int f;
+		for (f = 0; f < 6; f++) {
+			double e = fabs(fn[f](i, n) - fn[f](n - 1 - i, n));
+			if (e > d)
+				d = e;
+		}
+	}
+	/* hann_poisson / youssef / bartlett were not symmetric */
+	CHECK(d < 1e-12);
+	CHECK(fabs(bartlett(0, n)) < 1e-12);
+}
+
 static void test_ranges(void)
 {
 	/* used to divide by zero (SIGFPE) or loop over garbage */
@@ -96,6 +115,7 @@ int main(void)
 {
 	test_remove_dc();
 	test_fft();
+	test_windows();
 	test_ranges();
 	if (failures) {
 		fprintf(stderr, "%d check(s) failed\n", failures);

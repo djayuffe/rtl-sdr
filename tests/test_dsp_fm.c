@@ -107,6 +107,60 @@ static void test_helpers(void)
 	CHECK(clip16(1 << 20) == 32767 && clip16(-(1 << 20)) == -32768);
 }
 
+static void test_filters(void)
+{
+	struct demod_state d;
+	int16_t data[128], hist_i[6] = {0}, hist_q[6] = {0}, fh[9] = {0};
+	int j, k, bad = 0;
+
+	/* 170k -> 32k resampler: a constant must stay constant (was 1.0 .. 1.2x) */
+	memset(&d, 0, sizeof(d));
+	d.rate_out = 170000;
+	d.rate_out2 = 32000;
+	d.result_len = 1700;
+	for (j = 0; j < 1700; j++)
+		d.result[j] = 1000;
+	low_pass_real(&d);
+	CHECK(d.result_len > 300);
+	for (j = 0; j < d.result_len; j++)
+		if (d.result[j] != 1000)
+			bad++;
+	CHECK(bad == 0);
+
+	/* 5th order decimator: a ramp must stay a ramp across block boundaries */
+	for (k = 0; k < 2; k++) {
+		for (j = 0; j < 32; j++) {
+			data[2*j]   = (int16_t)(4 * (32*k + j));	/* I ramp */
+			data[2*j+1] = 0;
+		}
+		fifth_order(data, 64, hist_i);
+		fifth_order(data + 1, 63, hist_q);
+		for (j = 0; j < 16; j++) {
+			int g = 16*k + j;			/* global output index */
+			if (g < 3)
+				continue;			/* start-up from zero history */
+			CHECK(data[2*j] == 8*(2*g + 1) - 20);
+			CHECK(data[2*j+1] == 0);
+		}
+	}
+
+	/* droop compensation with large samples: 32 bit products used to overflow */
+	for (j = 0; j < 128; j += 2) {
+		data[j] = 30000; data[j+1] = -30000;
+	}
+	generic_fir(data, 128, cic_9_tables[3], fh);
+	CHECK(data[100] > 0);
+
+	/* partial groups are ignored */
+	{
+		int16_t s[16];
+		for (j = 0; j < 16; j++)
+			s[j] = (int16_t)(j + 1);
+		CHECK(low_pass_simple(s, 10, 4) == 2);
+		CHECK(s[0] == 10 && s[1] == 26);
+	}
+}
+
 static void test_frequency_range(void)
 {
 	struct controller_state c;
@@ -153,6 +207,7 @@ int main(void)
 	test_atan();
 	test_stats();
 	test_helpers();
+	test_filters();
 	test_frequency_range();
 	if (failures) {
 		fprintf(stderr, "%d check(s) failed\n", failures);

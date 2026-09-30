@@ -1041,6 +1041,11 @@ int r82xx_set_gain(struct r82xx_priv *priv, int set_manual_gain, int gain)
 			if (total_gain >= gain)
 				break;
 
+			/* mixer step 15 is -8 dB: a request above the maximum (496)
+			 * used to end up at 488 instead of saturating at 496 */
+			if (mix_index >= 14)
+				break;
+
 			total_gain += r82xx_mixer_gain_steps[++mix_index];
 		}
 
