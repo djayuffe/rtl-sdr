@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <libusb.h>
+#include <math.h>
 
 #include "fake_libusb.h"
 
@@ -37,12 +38,72 @@ static uint8_t tuner_regs[256];
 static int testmode;		/* demod reg 0x19 == 0x03: device streams a byte counter */
 static uint8_t counter;
 
+/* --- signal generator ------------------------------------------------ */
+static int sig_kind;
+static double sig_hz, sig_frac, sig_audio, sig_dev, sig_amp = 60;
+static double sig_phase, sig_aphase;
+static double sample_rate = 2048000.0;
+static uint32_t ratio_hi, ratio_lo;
+static int env_done;
+
+void fake_set_signal(int kind, double carrier_hz, double carrier_frac,
+		     double audio_hz, double dev_hz, double amp)
+{
+	sig_kind = kind; sig_hz = carrier_hz; sig_frac = carrier_frac;
+	sig_audio = audio_hz; sig_dev = dev_hz; sig_amp = amp;
+	sig_phase = sig_aphase = 0;
+}
+double fake_sample_rate(void) { return sample_rate; }
+
+static void read_env(void)
+{
+	const char *e = getenv("FAKE_SIGNAL");
+	env_done = 1;
+	if (e) {
+		char kind[16] = "";
+		double a = 1000, d = 5000, amp = 60;
+		sscanf(e, "%15[^:]:%lf:%lf:%lf", kind, &a, &d, &amp);
+		fake_set_signal(!strcmp(kind, "tone") ? 1 : !strcmp(kind, "fm") ? 2 : !strcmp(kind, "am") ? 3 : 0,
+				getenv("FAKE_CARRIER_HZ") ? atof(getenv("FAKE_CARRIER_HZ")) : 0,
+				getenv("FAKE_CARRIER_FRAC") ? atof(getenv("FAKE_CARRIER_FRAC")) : 0, a, d, amp);
+	}
+}
+
+static void fill_signal(unsigned char *buf, int len)
+{
+	int n;
+	double w = 2.0 * 3.14159265358979323846;
+	for (n = 0; n + 1 < len; n += 2) {
+		double env = 1.0, inst = sig_hz + sig_frac * sample_rate;
+		double i_, q_, nz;
+		if (sig_kind == 2)
+			inst += sig_dev * sin(sig_aphase);
+		if (sig_kind == 3)
+			env = 1.0 + 0.5 * sin(sig_aphase);
+		sig_phase += w * inst / sample_rate;
+		sig_aphase += w * sig_audio / sample_rate;
+		if (sig_phase > w || sig_phase < -w) sig_phase = fmod(sig_phase, w);
+		if (sig_aphase > w) sig_aphase = fmod(sig_aphase, w);
+		nz = 0.4;
+		i_ = 127.5 + sig_amp * (sig_kind == 3 ? env / 1.5 : 1.0) * cos(sig_phase) + nz * ((rand() & 255) / 128.0 - 1.0);
+		q_ = 127.5 + sig_amp * (sig_kind == 3 ? env / 1.5 : 1.0) * sin(sig_phase) + nz * ((rand() & 255) / 128.0 - 1.0);
+		buf[n]     = (uint8_t)(i_ < 0 ? 0 : i_ > 255 ? 255 : (int)(i_ + 0.5));
+		buf[n + 1] = (uint8_t)(q_ < 0 ? 0 : q_ > 255 ? 255 : (int)(q_ + 0.5));
+	}
+	if (len & 1)
+		buf[len - 1] = 128;
+}
+
 static void fill_stream(unsigned char *buf, int len)
 {
 	int i;
+	if (!env_done)
+		read_env();
 	if (testmode) {
 		for (i = 0; i < len; i++)
 			buf[i] = counter++;
+	} else if (sig_kind) {
+		fill_signal(buf, len);
 	} else {
 		/* ~N(127.5, 1.5) noise from a small LCG + CLT */
 		static uint32_t lcg = 1;
@@ -74,6 +135,10 @@ void fake_reset(void)
 	submit_base = event_base = -1;
 	testmode = 0;
 	counter = 0;
+	sample_rate = 2048000.0;
+	ratio_hi = ratio_lo = 0;
+	sig_kind = 0;
+	sig_phase = sig_aphase = 0;
 	gpo_writes = 0;
 	last_gpo = 0;
 	for (i = 0; i < MAX_PENDING; i++) {
@@ -202,6 +267,18 @@ int libusb_control_transfer(libusb_device_handle *h, uint8_t bmRequestType,
 		/* demod register access */
 		if (!in && (wValue >> 8) == 0x19 && (wIndex & 0x0f) == 0 && wLength >= 1)
 			testmode = (data[0] == 0x03);
+		/* resample ratio: demod page 1, reg 0x9f (high 16 bit), 0xa1 (low 16 bit) */
+		if (!in && (wIndex & 0x0f) == 1 && wLength == 2 &&
+		    ((wValue >> 8) == 0x9f || (wValue >> 8) == 0xa1)) {
+			uint32_t v = ((uint32_t)data[0] << 8) | data[1];
+			if ((wValue >> 8) == 0x9f) ratio_hi = v; else ratio_lo = v;
+			{
+				uint32_t ratio = (ratio_hi << 16) | ratio_lo;
+				uint32_t real = ratio | ((ratio & 0x08000000u) << 1);
+				if (real)
+					sample_rate = 28800000.0 * 4194304.0 / real;
+			}
+		}
 		if (in)
 			memset(data, 0, wLength);
 		return wLength;

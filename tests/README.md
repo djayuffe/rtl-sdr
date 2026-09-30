@@ -18,3 +18,8 @@ The fake bus only proves logic and memory safety; it says nothing about RF behav
 
 | `bench_fm`, `bench_power`, `bench_adsb` | offline benchmarks with accuracy gates (`-c`), see ../BENCHMARK.md |
 | `rtl_validate_fake` | the on-device validation tool run against the emulated dongle |
+| `test_rtl_power_e2e` | tone -> rtl_power scanner/FFT/CSV: peak frequency vs the tone, cropped and decimated scans |
+| `e2e_rtl_fm.py` | the real rtl_fm binary demodulating FM/AM/wbfm from the emulated dongle (python3), incl. a wrong-side negative control |
+
+Signals for the emulator: `fake_set_signal()` in C, or `FAKE_SIGNAL=fm:1000:5000:60` (kind:audio_hz:dev_hz:amp),
+`FAKE_CARRIER_FRAC` (fraction of the sample rate) and `FAKE_CARRIER_HZ` in the environment.

@@ -108,6 +108,16 @@ Building the accuracy benchmarks exposed two more real bugs that no code reading
 
 Datasheets: the R820T/R820T2 and RTL2832U datasheets are hosted on rtl-sdr.com, homepages.uni-regensburg.de, theretroweb.com, datasheet4u.com and deepwiki.com, all of which this build environment's network policy blocks. Only search-result excerpts were available, and they agree with the code: register 0x10 bits [7:5] = divider number (dividers 2..64, LO ranges 864-1785.6 MHz for /2 and 432-892.8 MHz for /4, i.e. a VCO of about 1728-3571 MHz; the code uses the narrower 1770-3540 MHz), N = 13 + 4*Ni + Si with Si in register 0x14 bits [7:6]. One excerpt mentions a 3.9 GHz upper VCO limit; the code stops at 3.54 GHz. The RTL2832U register widths (28-bit resample ratio, 14-bit ppm offset, 22-bit IF) could not be confirmed from a datasheet; `rtl_validate` checks the resulting behaviour on real hardware instead.
 
+## Sixth pass: end-to-end signal tests
+The fake bus can now emit a tone, an FM or an AM carrier at a chosen offset from the tuned centre (`fake_set_signal()`, or `FAKE_SIGNAL` / `FAKE_CARRIER_*` for the real binaries). Two end-to-end tests run the real code paths:
+* `test_rtl_power_e2e`: tone -> library -> `scanner()` -> FFT -> CSV; the strongest bin must be at the tone frequency (`low + j*step`, the axis `heatmap.py` uses) for above/below-centre tones, cropped and decimated scans.
+* `e2e_rtl_fm.py`: the real `rtl_fm` binary demodulates FM (`-A std|fast|lut`, `-F 9`), AM and `-M wbfm` audio; the 1 kHz tone must carry >70 % of the audio power, and a carrier on the wrong side of the centre (negative control) must not. This also proves the fs/4 rotation direction.
+
+Bugs found and fixed by them:
+* **`rtl_power -c` mislabelled the frequency axis.** The CSV `low`/`high` came from a truncated bin count while the row holds bins `i1..i2`; with cropping the whole row was shifted by 1-2 bins (up to 12.5 kHz at 9.8 kHz bins). Now derived from the bins actually printed. Uncropped output is unchanged.
+* **`rtl_power` clipped the decimated scans at modest levels.** With the default boxcar decimator (any range < 1 MHz wide) the window product `x*256` (x up to 127*ds) overflowed int16: signals of only ~20 counts clipped (int16 wrap in the original), the clipped tone's 3rd harmonic aliased onto the DC region and the reported peak moved by up to 27 kHz (DC bin for ds=6). The `w /= ds` that was commented out in the source is now active and `csv_dbm()` restores `ds^2`, so levels of unclipped signals are unchanged.
+* `rtl_fm -A lut` (spike bug from pass five) also shows up end to end: 68 % of the audio power in the tone before, 100 % now.
+
 ## Evidence
 `tests/` (`-DBUILD_TESTS=ON`) - 4 suites, all pass under ASan+UBSan. The same tests run against the untouched 2.0.3 sources fail
 (division by zero in `r82xx_set_pll`, 32-bit overflow in `fast_atan2`, half DC removal, `rtl_power` SIGFPE, wrong device

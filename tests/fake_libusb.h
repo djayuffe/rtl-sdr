@@ -24,6 +24,18 @@ int fake_open_handles(void);
 unsigned fake_gpo_writes(void);		/* number of writes to the GPO register */
 uint8_t fake_last_gpo(void);
 void fake_reset(void);
+
+/* Baseband signal emitted by the fake stream (instead of noise).
+ * kind: 0 noise only, 1 tone, 2 FM, 3 AM.  The carrier sits at
+ * carrier_hz + carrier_frac * sample_rate relative to the tuned centre
+ * (positive = above the centre, the library's convention).
+ *   tone: carrier only;  FM: audio_hz tone with dev_hz deviation;
+ *   AM: audio_hz tone at 50 % depth.   amp = peak ADC counts.
+ * Also read from the environment at start-up: FAKE_SIGNAL=kind:audio:dev:amp
+ * (kind = tone|fm|am) and FAKE_CARRIER_FRAC / FAKE_CARRIER_HZ. */
+void fake_set_signal(int kind, double carrier_hz, double carrier_frac,
+		     double audio_hz, double dev_hz, double amp);
+double fake_sample_rate(void);		/* rate implied by the last resample-ratio write */
 uint8_t fake_tuner_reg(int reg);	/* last value written to a tuner register */
 
 #endif

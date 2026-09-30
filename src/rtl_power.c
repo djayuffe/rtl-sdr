@@ -751,13 +751,18 @@ void scanner(void)
 		for (offset=0; offset<(buf_len/ds); offset+=(2*bin_len)) {
 			// todo, let rect skip this
 			for (j=0; j<bin_len; j++) {
+				/* The decimator sums ds samples, so x can be 127*ds and x*256
+				 * overflowed int16 at modest levels (clipping: the third
+				 * harmonic then aliased onto the DC region and the peak
+				 * moved). Undo the decimator gain here and put ds^2 back
+				 * in csv_dbm(), so reported levels do not change. */
 				w =  (int32_t)fft_buf[offset+j*2];
 				w *= (int32_t)(window_coefs[j]);
-				//w /= (int32_t)(ds);
+				w /= (int32_t)(ds);
 				fft_buf[offset+j*2]   = clip16(w);
 				w =  (int32_t)fft_buf[offset+j*2+1];
 				w *= (int32_t)(window_coefs[j]);
-				//w /= (int32_t)(ds);
+				w /= (int32_t)(ds);
 				fft_buf[offset+j*2+1] = clip16(w);
 			}
 			fix_fft(fft_buf+offset, bin_e);
@@ -779,9 +784,11 @@ void csv_dbm(struct tuning_state *ts)
 {
 	int i, len, ds, i1, i2, bw2, bin_count;
 	int64_t tmp;
-	double dbm;
+	double dbm, gain;
 	len = 1 << ts->bin_e;
 	ds = ts->downsample;
+	/* scanner() divides the windowed samples by ds (decimator gain) */
+	gain = (ts->bin_e > 0) ? (double)ds * (double)ds : 1.0;
 	/* fix FFT stuff quirks */
 	if (ts->bin_e > 0) {
 		/* nuke DC component (not effective for all windows) */
@@ -794,21 +801,32 @@ void csv_dbm(struct tuning_state *ts)
 		}
 	}
 	/* Hz low, Hz high, Hz step, samples, dbm, dbm, ... */
-	bin_count = (int)((double)len * (1.0 - ts->crop));
-	bw2 = (int)(((double)ts->rate * (double)bin_count) / ((double)len * 2.0 * (double)ds));
-	fprintf(file, "%i, %i, %.2f, %i, ", ts->freq - bw2, ts->freq + bw2,
-		(double)ts->rate / (double)(len*ds), ts->samples);
-	// something seems off with the dbm math
 	i1 = 0 + (int)((double)len * ts->crop * 0.5);
 	i2 = (len-1) - (int)((double)len * ts->crop * 0.5);
+	bin_count = (int)((double)len * (1.0 - ts->crop));
+	bw2 = (int)(((double)ts->rate * (double)bin_count) / ((double)len * 2.0 * (double)ds));
+	if (ts->bin_e > 0) {
+		/* Bin j of the row is at low + j * step (what heatmap.py assumes).
+		 * low/high used to come from the truncated bin_count, but the row
+		 * really holds the bins i1..i2: with -c the axis was off by 1-2 bins. */
+		double step = (double)ts->rate / (double)(len*ds);
+		fprintf(file, "%i, %i, %.2f, %i, ",
+			(int)lround(ts->freq + (i1 - len/2) * step),
+			(int)lround(ts->freq + (i2 + 1 - len/2) * step),
+			step, ts->samples);
+	} else {
+		fprintf(file, "%i, %i, %.2f, %i, ", ts->freq - bw2, ts->freq + bw2,
+			(double)ts->rate / (double)(len*ds), ts->samples);
+	}
+	// something seems off with the dbm math
 	for (i=i1; i<=i2; i++) {
-		dbm  = (double)ts->avg[i];
+		dbm  = (double)ts->avg[i] * gain;
 		dbm /= (double)ts->rate;
 		dbm /= (double)ts->samples;
 		dbm  = 10 * log10(dbm);
 		fprintf(file, "%.2f, ", dbm);
 	}
-	dbm = (double)ts->avg[i2] / ((double)ts->rate * (double)ts->samples);
+	dbm = (double)ts->avg[i2] * gain / ((double)ts->rate * (double)ts->samples);
 	if (ts->bin_e == 0) {
 		dbm = ((double)ts->avg[0] / \
 		((double)ts->rate * (double)ts->samples));}

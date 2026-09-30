@@ -29,6 +29,14 @@ target_link_libraries(rtl_validate_fake rtlsdr_under_test ${CMAKE_THREAD_LIBS_IN
 add_test(NAME rtl_validate_fake COMMAND rtl_validate_fake -q -T -t 0.2)
 set_tests_properties(rtl_validate_fake PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0")
 
+# rtl_fm against the emulated dongle with real modulated signals (needs python3)
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_FOUND)
+  add_executable(rtl_fm_fake ${PROJECT_SOURCE_DIR}/src/rtl_fm.c validate_main.c)
+  target_link_libraries(rtl_fm_fake rtlsdr_under_test ${CMAKE_THREAD_LIBS_INIT} m)
+  add_test(NAME e2e_rtl_fm COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/e2e_rtl_fm.py $<TARGET_FILE:rtl_fm_fake>)
+endif()
+
 # offline DSP benchmarks / accuracy reports (run manually: ./bench_fm, ./bench_power, ./bench_adsb; -q = quick)
 foreach(b bench_fm bench_power bench_adsb)
   add_executable(${b} ${b}.c)
@@ -37,7 +45,7 @@ foreach(b bench_fm bench_power bench_adsb)
   set_tests_properties(${b}_check PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0")
 endforeach()
 
-foreach(t test_librtlsdr test_dsp_fm test_dsp_power test_adsb test_tcp_queue)
+foreach(t test_librtlsdr test_dsp_fm test_dsp_power test_adsb test_tcp_queue test_rtl_power_e2e)
   add_executable(${t} ${t}.c)
   target_link_libraries(${t} rtlsdr_under_test ${CMAKE_THREAD_LIBS_INIT} m)
   add_test(NAME ${t} COMMAND ${t})

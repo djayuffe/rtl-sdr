@@ -13,7 +13,7 @@ original code. The small settling delays added to the tuner drivers and all RF b
 ## Build, test, validate
     mkdir build && cd build
     cmake .. -DBUILD_TESTS=ON -DBUILD_VALIDATE=ON      # add -DCMAKE_C_FLAGS="-fsanitize=address,undefined" for sanitizers
-    make && ctest --output-on-failure                  # 9 suites, no hardware needed
+    make && ctest --output-on-failure                  # 11 suites, no hardware needed
     ./src/rtl_validate -q                              # on a real dongle (antenna port terminated)
     ./tests/bench_fm; ./tests/bench_power; ./tests/bench_adsb   # offline DSP benchmarks, -q quick, -c quality gates
 
@@ -41,7 +41,7 @@ original code. The small settling delays added to the tuner drivers and all RF b
 - **rtl_fm resampler 170k->32k:** gain wandered 1.0-1.2 (constant divisor for 5- or 6-sample windows); now a true average.
 - **rtl_fm `-F` decimator:** dropped the last sample of every buffer; rewritten with a continuous history. AM/USB/LSB wrapped instead of clipping; `-t -N` (exit on squelch) was never acted on; shutdown could deadlock; failed tune/sample rate was ignored; condition variables lost wake-ups.
 - **rtl_adsb:** noise was accepted as a preamble and the decoder swallowed the real frame: 83 % -> 99.8 % exact decodes at 16 dB SNR (100 % at 20 dB, 0 phantom frames). Data race between USB callback and decoder, `pthread_cancel` with a held mutex, and a frame missing its last bit was accepted.
-- **rtl_power:** DC removal removed only half the DC; Hann-Poisson, Youssef and Bartlett windows were asymmetric; `-w kaiser` silently used a rectangle (now warns).
+- **rtl_power:** with `-c` the CSV frequency axis was shifted by 1-2 bins; narrow (decimated) scans clipped at modest signal levels and the clipped tone's harmonic aliased into the wrong bin (peak off by up to 27 kHz); DC removal removed only half the DC; Hann-Poisson, Youssef and Bartlett windows were asymmetric; `-w kaiser` silently used a rectangle (now warns).
 - **rtl_test `-p`:** the warm-up discard was inverted.
 - **rtl_tcp:** Ctrl-C during a client session only ended the session; disconnect busy-looped; bind used the first address for every attempt.
 - **R82xx:** gain requests above 496 fell back to 488; shadow registers were updated before the I2C write succeeded; PLL-not-locked was reported as success; V4 upconverter switch disagreed with band selection at exactly 28.8 MHz; calibration/PLL had no settling delay.
@@ -51,7 +51,7 @@ original code. The small settling delays added to the tuner drivers and all RF b
 
 ### New
 - `rtl_validate`: on-device validation and benchmark tool (`-DBUILD_VALIDATE=ON`).
-- `tests/`: fake libusb (RTL2832U + R820T/E4000/FC0012 + EEPROM), 9 ctest suites, 3 offline benchmarks with quality gates.
+- `tests/`: fake libusb (RTL2832U + R820T/E4000/FC0012 + EEPROM, can emit tone/FM/AM signals), 11 ctest suites incl. end-to-end `rtl_power` and `rtl_fm` signal tests, 3 offline benchmarks with quality gates.
 - `AUDIT-REPORT.md` (findings, numerical verification), `BENCHMARK.md` (numbers and how to run).
 
 ### Known, intentionally not changed
