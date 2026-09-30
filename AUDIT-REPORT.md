@@ -76,6 +76,22 @@ Each claim was checked with a script or a test, not just read.
 sample-rate edges (2), gain saturation (1), resampler gain, decimator continuity, window symmetry (2).
 GCC `-fanalyzer` and cppcheck report nothing actionable in the final tree.
 
+## Third pass: tuner drivers, remote-controllable state
+| topic | result |
+|-------|--------|
+| **Tuner crystal from the network** | `rtl_tcp` command 0x0c sets the tuner crystal to any value. With FC0012/FC0013 a value below 2 Hz made `xtal_freq_div_2` zero and the driver divided by zero (remote crash). Now `rtlsdr_set_xtal_freq()` accepts 8..60 MHz only and both drivers refuse a clock below 2 kHz. Tested with an emulated FC0012 (fails on the earlier code) |
+| **FC0012/13 PLL** | `freq * multi` was 32 bit: above ~1.07 GHz (multi=4) the VCO frequency wrapped and the driver programmed a garbage but "valid" divider. Now 64 bit, out-of-range frequencies return an error (tested) |
+| **EEPROM write** | `rtl_eeprom` now reads the EEPROM back and reports failure if it differs (a worn/write-protected part acknowledges writes but keeps its content) |
+| **FC2580** | `k` rounding up to 2^20 would carry into the R field of register 0x18; guarded. Exhaustive search shows it is unreachable with the hard-coded 16.384 MHz crystal, so this is defensive only |
+
+## Known, not changed (need hardware or a decision)
+* `fc2580_set_bw()` ignores the requested bandwidth and always selects the 1.53 MHz filter; `fc2580_set_freq()` then re-selects a band filter, so the effective filter depends on whether the frequency or the sample rate is set last (`rtl_fm` sets the frequency first).
+* The FC2580 crystal (16.384 MHz) is hard-coded: `-p` ppm correction does not reach its LO.
+* A `-p` correction is applied to the sample clock and the tuner LO together (correct for the usual shared 28.8 MHz crystal, wrong for dongles with a separate tuner crystal).
+* `rtlsdr_set_tuner_gain()` on R820T/R828D also switches LNA and mixer to manual mode even if automatic gain was selected.
+* Direct sampling on/off does not reset an active offset-tuning offset.
+* The FC2580/FC0012/FC0013 calibration loops have no delays (USB latency is assumed to be enough).
+
 ## Evidence
 `tests/` (`-DBUILD_TESTS=ON`) - 4 suites, all pass under ASan+UBSan. The same tests run against the untouched 2.0.3 sources fail
 (division by zero in `r82xx_set_pll`, 32-bit overflow in `fast_atan2`, half DC removal, `rtl_power` SIGFPE, wrong device

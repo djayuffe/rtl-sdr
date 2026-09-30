@@ -360,6 +360,9 @@ static rtlsdr_dongle_t known_devices[] = {
 #define DEF_RTL_XTAL_FREQ	28800000
 #define MIN_RTL_XTAL_FREQ	(DEF_RTL_XTAL_FREQ - 1000)
 #define MAX_RTL_XTAL_FREQ	(DEF_RTL_XTAL_FREQ + 1000)
+/* tuner crystals in use: 16 MHz (R828D), 16.384 MHz, 24/26 MHz, 28.8 MHz, 36 MHz */
+#define MIN_TUN_XTAL_FREQ	8000000
+#define MAX_TUN_XTAL_FREQ	60000000
 
 #define CTRL_IN		(LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_ENDPOINT_IN)
 #define CTRL_OUT	(LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_ENDPOINT_OUT)
@@ -745,6 +748,12 @@ int rtlsdr_set_xtal_freq(rtlsdr_dev_t *dev, uint32_t rtl_freq, uint32_t tuner_fr
 
 	if (rtl_freq > 0 &&
 		(rtl_freq < MIN_RTL_XTAL_FREQ || rtl_freq > MAX_RTL_XTAL_FREQ))
+		return -2;
+
+	/* a remote client (rtl_tcp command 0x0c) can send anything: a tiny value
+	 * made the FC0012/FC0013 drivers divide by zero */
+	if (tuner_freq > 0 &&
+		(tuner_freq < MIN_TUN_XTAL_FREQ || tuner_freq > MAX_TUN_XTAL_FREQ))
 		return -2;
 
 	if (rtl_freq > 0 && dev->rtl_xtal != rtl_freq) {

@@ -215,6 +215,14 @@ fc2580_fci_result_type fc2580_set_freq( void *pTuner, unsigned int f_lo, unsigne
 	
 	if( f_diff_shifted - k_val * ( ( 2* f_comp ) >> pre_shift_bits ) >= ( f_comp >> pre_shift_bits ) )
 	k_val = k_val + 1;
+
+	/* k is a 20 bit fraction: rounding up to 2^20 would carry into the R
+	 * field of register 0x18, carry into N instead */
+	if( k_val >= (1u << 20) )
+	{
+		k_val = 0;
+		n_val = n_val + 1;
+	}
 	
 	if( f_vco >= BORDER_FREQ )	//Select VCO Band
 		data_0x02 = data_0x02 | 0x08;	//0x02[3] = 1;

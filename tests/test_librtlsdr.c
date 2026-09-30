@@ -282,6 +282,30 @@ static void test_e4k(void)
 	CHECK(rtlsdr_close(dev) == 0);
 }
 
+static void test_fc0012(void)
+{
+	rtlsdr_dev_t *dev;
+
+	fake_reset();
+	fake_tuner_addr = 0xc6;
+	dev = NULL;
+	CHECK(rtlsdr_open(&dev, 0) == 0);
+	CHECK(dev != NULL);
+	if (!dev)
+		return;
+	CHECK(rtlsdr_get_tuner_type(dev) == RTLSDR_TUNER_FC0012);
+	CHECK(rtlsdr_set_sample_rate(dev, 2048000) == 0);
+	CHECK(rtlsdr_set_center_freq(dev, 100000000) == 0);
+	/* f_vco = freq * 4 overflowed 32 bit above 1.07 GHz and "worked" with garbage */
+	CHECK(rtlsdr_set_center_freq(dev, 1500000000u) < 0);
+	/* tuner crystal from a remote client: 1 Hz used to divide by zero */
+	CHECK(rtlsdr_set_xtal_freq(dev, 0, 1) == -2);
+	CHECK(rtlsdr_set_xtal_freq(dev, 0, 100000000) == -2);
+	CHECK(rtlsdr_set_center_freq(dev, 100000000) == 0);
+	CHECK(rtlsdr_set_xtal_freq(dev, 0, 28800000) == 0);
+	CHECK(rtlsdr_close(dev) == 0);
+}
+
 int main(void)
 {
 	test_enumeration();
@@ -290,6 +314,7 @@ int main(void)
 	test_eeprom();
 	test_async();
 	test_e4k();
+	test_fc0012();
 
 	if (failures) {
 		fprintf(stderr, "%d check(s) failed\n", failures);

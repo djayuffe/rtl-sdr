@@ -161,6 +161,8 @@ int fc0012_set_params(void *dev, uint32_t freq, uint32_t bandwidth)
 	int vco_select = 0;
 
 	xtal_freq_div_2 = rtlsdr_get_tuner_clock(dev) / 2;
+	if (xtal_freq_div_2 < 1000)	/* also keeps "/ 1000" below non-zero */
+		return -1;
 
 	/* select frequency divider and the frequency of VCO */
 	if (freq < 37084000) {		/* freq * 96 < 3560000000 */

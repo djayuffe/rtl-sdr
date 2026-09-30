@@ -158,6 +158,11 @@ static uint8_t tuner_reg_value(int addr, int reg)
 			return 0x40;		/* E4K_CHECK_VAL */
 		return 0xff;
 	}
+	if (addr == 0xc6) {			/* FC0012 (0xa1) / FC0013 (0xa3) */
+		if (reg == 0x00)
+			return 0xa1;
+		return 0x20;			/* VCO calibration result in range */
+	}
 	return 0;
 }
 

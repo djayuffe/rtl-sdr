@@ -441,12 +441,24 @@ int main(int argc, char **argv)
 		goto exit;
 
 	r = rtlsdr_write_eeprom(dev, buf, 0, flash_file ? EEPROM_SIZE : 128);
-	if (r < 0)
+	if (r < 0) {
 		fprintf(stderr, "Error while writing EEPROM: %i\n", r);
-	else
-		fprintf(stderr, "\nConfiguration successfully written.\n"
-				"Please replug the device for changes"
-				" to take effect.\n");
+	} else {
+		/* read back: a worn or write-protected EEPROM acknowledges the
+		 * transfer but keeps the old contents */
+		uint8_t verify[EEPROM_SIZE];
+		int len = flash_file ? EEPROM_SIZE : 128;
+		r = rtlsdr_read_eeprom(dev, verify, 0, len);
+		if (r < 0 || memcmp(verify, buf, len) != 0) {
+			fprintf(stderr, "Error: verification failed, the EEPROM does not contain "
+					"the data that was written!\n");
+			r = -1;
+		} else {
+			fprintf(stderr, "\nConfiguration successfully written and verified.\n"
+					"Please replug the device for changes"
+					" to take effect.\n");
+		}
+	}
 
 exit:
 	if (file)
